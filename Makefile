@@ -31,7 +31,20 @@ SOURCES := $(foreach d,$(SRC_DIRS),$(wildcard $(d)/*.c) $(wildcard $(d)/*.s))
 # outer one rewrites ".c" sources (a word that does not match is left
 # alone, so each source is changed by the one that applies to it).
 OBJECTS := $(patsubst %.c,$(BUILD_DIR)/%.o,$(patsubst %.s,$(BUILD_DIR)/%.o,$(SOURCES)))
+PROGRAM_CFLAGS := -mthumb -mcpu=cortex-m3 -ffreestanding
+PROGRAM_CFLAGS += -fno-builtin -std=gnu17 -Iinclude -I.
+PROGRAM_CFLAGS += -Wall -Wextra -O0 -g3
 
+PROGRAM_SOURCES := $(wildcard $(PROGRAM_DIR)/*.c)
+PROGRAM_NAMES := $(basename $(notdir $(PROGRAM_SOURCES)))
+PROGRAM_ELFS := $(addprefix $(BUILD_DIR)/programs/,$(addsuffix .elf,$(PROGRAM_NAMES)))
+
+PROGRAM_COMMON_OBJECTS := $(BUILD_DIR)/programs/startup.o \
+                           $(BUILD_DIR)/programs/printf.o \
+                           $(BUILD_DIR)/programs/format.o \
+                           $(BUILD_DIR)/programs/syscalls.o
+
+IMAGE_ARGS = $(foreach p,$(PROGRAM_NAMES),$(p)=$(BUILD_DIR)/programs/$(p).elf)
 # -mthumb / -mcpu: target the Cortex-M3's Thumb instruction set.
 # -nostartfiles: no default C startup code - boot/startup.s is ours.
 # -ffreestanding: no hosted environment - no full standard library, no
@@ -78,7 +91,7 @@ QEMU := qemu-system-arm -machine mps2-an385 -monitor null -nographic -serial std
 QEMU += -device loader,file=$(IMAGE),addr=$(IMAGE_ADDR),force-raw=on
 
 # These targets are command names, not files on disk.
-.PHONY: all clean image run debug run-trace test
+.PHONY: all clean image run debug run-trace test programs
 
 # Default goal: build the image.
 all: $(BIN)
@@ -95,27 +108,47 @@ $(BUILD_DIR)/%.o: %.s
 	@mkdir -p $(dir $@)
 	$(CC) $(CFLAGS) -c $< -o $@
 
+# Build standalone program objects.
+$(BUILD_DIR)/programs/%.o: $(PROGRAM_DIR)/%.c
+	@mkdir -p $(dir $@)
+	$(CC) $(PROGRAM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/programs/startup.o: $(PROGRAM_DIR)/startup.s
+	@mkdir -p $(dir $@)
+	$(CC) $(PROGRAM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/programs/syscalls.o: lib/syscalls.s
+	@mkdir -p $(dir $@)
+	$(CC) $(PROGRAM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/programs/printf.o: lib/printf.c
+	@mkdir -p $(dir $@)
+	$(CC) $(PROGRAM_CFLAGS) -c $< -o $@
+
+$(BUILD_DIR)/programs/format.o: lib/format.c
+	@mkdir -p $(dir $@)
+	$(CC) $(PROGRAM_CFLAGS) -c $< -o $@
+
+# Link each standalone program as an ELF with relocation records.
+$(BUILD_DIR)/programs/%.elf: $(BUILD_DIR)/programs/%.o $(PROGRAM_COMMON_OBJECTS) programs/program.ld
+	$(CC) -mthumb -mcpu=cortex-m3 -nostdlib \
+		-T programs/program.ld \
+		-Wl,--emit-relocs \
+		-Wl,-Map=$(BUILD_DIR)/programs/$*.map \
+		$(filter %.o,$^) -lgcc -o $@
+
+programs: $(PROGRAM_ELFS)
 # Link every object file into the final image. The linker script is a
 # prerequisite too, so editing it makes make link again.
 $(BIN): $(OBJECTS) scripts/mps2_m3.ld
 	$(CC) $(CFLAGS) $(LDFLAGS) $(OBJECTS) -o $(BIN)
 
-# Temporary valid raw image for QEMU's generic loader. The project packer
-# will replace this recipe once the image format contract is implemented.
-$(IMAGE):
-	@mkdir -p $(dir $@)
-	@printf 'SCRATCH-OS-PROJECT-IMAGE\n' > $@
-
-# The host tool is student work. Once it exists, this target rebuilds the
-# image from every program in programs/. The separate $(IMAGE) rule above
-# remains the bootable placeholder used by an untouched project base.
-image: $(BIN)
-	@test -f $(IMAGE_TOOL) || { printf '%s\n' 'make image: implement tools/mkimage.py first'; exit 2; }
-	@test -d $(PROGRAM_DIR) || { printf '%s\n' 'make image: programs/ is missing'; exit 2; }
-	python3 $(IMAGE_TOOL) --output $(IMAGE) $(PROGRAM_DIR)
+image: programs
+	@test -f $(IMAGE_TOOL) || { printf '%s\n' 'make image: tools/mkimage.py is missing'; exit 2; }
+	python3 $(IMAGE_TOOL) image $(IMAGE) $(IMAGE_ARGS)
 
 # Build, load the image at its fixed FLASH address, then run in QEMU.
-run: $(BIN) $(IMAGE)
+run: $(BIN) image
 	$(QEMU)
 
 # Same as `run`, but paused for a debugger:

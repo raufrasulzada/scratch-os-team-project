@@ -63,6 +63,7 @@ struct tcb {
     uint32_t wait_id;           /* if WAITING: loaded task being joined */
     uint32_t *wait_result;      /* caller's saved r0, completed by task exit */
     uint8_t executable;         /* project MPU policy input */
+    uint32_t code_size;         /* loaded program code size, 512-byte aligned */
 };
 
 #define PROGRAM_SLOT_COUNT 4
@@ -118,6 +119,7 @@ int task_program_create( unsigned slot, const char *name,
                          void ( *entry )( void ), uint32_t *stack_top,
                          int executable );
 int task_program_slot_free( unsigned slot );
+void task_program_set_code_size( unsigned slot, uint32_t code_size );
 int task_wait_program( uint32_t id, uint32_t *saved_result );
 void task_fault_current( void );
 int task_current_is_program( void );

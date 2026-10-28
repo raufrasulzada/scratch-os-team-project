@@ -22,6 +22,6 @@ void mpu_init( void );
 /* Point region 1 at the partition [base, base + size).
  * size must be a power of two (at least 32), and base a multiple of
  * size. Called by the kernel just before it starts a task. */
-void mpu_set_task_region( uint32_t base, uint32_t size, int executable );
+void mpu_set_task_region( uint32_t base, uint32_t size, int executable, uint32_t code_size );
 
 #endif /* MPU_H */

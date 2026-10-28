@@ -32,6 +32,7 @@
 #include "drivers/systick.h"
 #include "kernel/task.h"
 #include "kernel/trace.h"
+#include "kernel/image.h"
 
 /* Every service has the same shape: up to three arguments (the
  * caller's r0, r1, r2) and one result (which becomes the caller's r0).
@@ -190,6 +191,32 @@ static uint32_t sys_trace_dump_impl( uint32_t a0, uint32_t a1, uint32_t a2 )
     return 0;
 }
 
+static uint32_t sys_image_count_impl(uint32_t a0,
+                                     uint32_t a1,
+                                     uint32_t a2)
+{
+    (void)a0;
+    (void)a1;
+    (void)a2;
+
+    return (uint32_t)image_count();
+}
+
+static uint32_t sys_image_name_impl(uint32_t a0,
+                                    uint32_t a1,
+                                    uint32_t a2)
+{
+    if (tcb_current == 0 || a2 < 1u || a2 > 16u)
+        return (uint32_t)-1;
+
+    const struct tcb *t = tcb_current;
+
+    if (!in_range(a1, a2, t->part_start, t->part_end))
+        return (uint32_t)-1;
+
+    return (uint32_t)image_name(a0, (char *)a1, a2);
+}
+
 /* Wait bookkeeping is supplied even though the untouched base has no loader.
  * Student loader code supplies SYS_PROGRAM_RUN and creates program tasks. */
 static uint32_t sys_program_wait_impl( uint32_t a0, uint32_t a1, uint32_t a2 )
@@ -217,6 +244,8 @@ static const syscall_fn table[] = {
     [SYS_TRACE_DUMP]  = sys_trace_dump_impl,
     [SYS_TICK_COUNT]  = sys_tick_count_impl,
     [SYS_PROGRAM_WAIT] = sys_program_wait_impl,
+    [SYS_IMAGE_COUNT] = sys_image_count_impl,
+    [SYS_IMAGE_NAME]  = sys_image_name_impl
 };
 
 /* How many entries the table has (here 11: numbers 0..10). */

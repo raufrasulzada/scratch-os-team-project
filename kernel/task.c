@@ -190,7 +190,7 @@ uint32_t task_start_first( void )
     /* MPU region 1 = this task's partition, so the task may use it. */
     mpu_set_task_region( tcb_current->part_start,
                          tcb_current->part_end - tcb_current->part_start,
-                         tcb_current->executable );
+                         tcb_current->executable, tcb_current->code_size );
 
     /* The first task is entered by the return from this SVCall
      * exception, not by PendSV. That return pops only the 8-word
@@ -305,6 +305,12 @@ int task_program_slot_free( unsigned slot )
         && tasks[PROGRAM_TASK_FIRST + slot].state == TASK_UNUSED;
 }
 
+void task_program_set_code_size( unsigned slot, uint32_t code_size )
+{
+    if (slot < PROGRAM_SLOT_COUNT)
+        tasks[PROGRAM_TASK_FIRST + slot].code_size = code_size;
+}
+
 int task_program_create( unsigned slot, const char *name,
                          void ( *entry )( void ), uint32_t *stack_top,
                          int executable )
@@ -337,6 +343,7 @@ int task_program_create( unsigned slot, const char *name,
     t->data_end = (uint32_t *) base;
     t->data_load = (const uint32_t *) base;
     t->executable = executable != 0;
+    t->code_size = 0;
     t->wake_tick = 0;
     t->wait_id = 0;
     t->wait_result = 0;
@@ -447,7 +454,7 @@ void task_switch_context( void )
      * task's partition is off limits, so isolation holds across the
      * switch. */
     mpu_set_task_region( next->part_start, next->part_end - next->part_start,
-                         next->executable );
+                         next->executable, next->code_size );
 
     /* Write the switch in the trace, but only if the task really
      * changed (a task that keeps the CPU is not a switch). The
